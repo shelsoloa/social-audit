@@ -24,12 +24,20 @@ export default async function JobsPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Your audits</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Your audits</h1>
+        <Link
+          href="/portal/jobs/new"
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+        >
+          New audit
+        </Link>
+      </div>
 
       {!jobs || jobs.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-500">
           No audits yet.{" "}
-          <Link href="/start" className="underline">
+          <Link href="/portal/jobs/new" className="underline">
             Start one
           </Link>
           .

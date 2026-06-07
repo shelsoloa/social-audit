@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { RiskCategory, RISK_LABELS } from "@/lib/audit/types";
+import {
+  JobCreationForm,
+  type JobFormInitial,
+} from "@/components/JobCreationForm";
 import { startAudit, type StartAuditInput } from "./actions";
 
 const PENDING_KEY = "pendingAudit";
 const DEV_LOGIN = process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
-
-const GENDERS = ["Woman", "Man", "Non-binary", "Other", "Prefer not to say"];
 
 export default function StartPage() {
   const router = useRouter();
@@ -17,13 +18,10 @@ export default function StartPage() {
 
   const [ready, setReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-
-  const [age, setAge] = useState("");
-  const [gender, setGender] = useState("");
-  const [race, setRace] = useState("");
-  const [orientation, setOrientation] = useState("");
-  const [country, setCountry] = useState("");
-  const [categories, setCategories] = useState<RiskCategory[]>([]);
+  const [initial, setInitial] = useState<JobFormInitial | undefined>();
+  const [pendingPayload, setPendingPayload] = useState<StartAuditInput | null>(
+    null,
+  );
 
   const [showAuth, setShowAuth] = useState(false);
   const [devEmail, setDevEmail] = useState("dev@example.com");
@@ -50,11 +48,13 @@ export default function StartPage() {
           .eq("user_id", user.id)
           .maybeSingle();
         if (profile) {
-          setAge(profile.age != null ? String(profile.age) : "");
-          setGender(profile.gender ?? "");
-          setRace(profile.race ?? "");
-          setOrientation(profile.sexual_orientation ?? "");
-          setCountry(profile.country ?? "");
+          setInitial({
+            age: profile.age != null ? String(profile.age) : "",
+            gender: profile.gender ?? "",
+            race: profile.race ?? "",
+            orientation: profile.sexual_orientation ?? "",
+            country: profile.country ?? "",
+          });
         }
         const pending = sessionStorage.getItem(PENDING_KEY);
         if (pending) {
@@ -71,39 +71,6 @@ export default function StartPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleCategory(c: RiskCategory) {
-    setCategories((prev) =>
-      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
-    );
-  }
-
-  function buildPayload(): StartAuditInput | null {
-    setError(null);
-    const ageNum = parseInt(age, 10);
-    if (!Number.isFinite(ageNum) || ageNum < 13 || ageNum > 120) {
-      setError("Enter an age between 13 and 120.");
-      return null;
-    }
-    if (!gender) {
-      setError("Select a gender.");
-      return null;
-    }
-    if (categories.length === 0) {
-      setError("Select at least one category to audit.");
-      return null;
-    }
-    return {
-      profile: {
-        age: ageNum,
-        gender,
-        race: race || undefined,
-        sexualOrientation: orientation || undefined,
-        country: country || undefined,
-      },
-      categories,
-    };
-  }
-
   async function finalize(payload: StartAuditInput) {
     if (finalizingRef.current) return;
     finalizingRef.current = true;
@@ -119,21 +86,18 @@ export default function StartPage() {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const payload = buildPayload();
-    if (!payload) return;
+  function handleSubmit(payload: StartAuditInput) {
+    setError(null);
     if (userId) {
       finalize(payload);
     } else {
+      setPendingPayload(payload);
       sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
       setShowAuth(true);
     }
   }
 
   async function handleX() {
-    const payload = buildPayload();
-    if (payload) sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "x",
@@ -147,9 +111,7 @@ export default function StartPage() {
 
   async function handleDevAuth(e: React.FormEvent) {
     e.preventDefault();
-    const payload = buildPayload();
-    if (!payload) return;
-    sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
+    if (!pendingPayload) return;
     setError(null);
     setSubmitting(true);
     const supabase = createClient();
@@ -168,7 +130,7 @@ export default function StartPage() {
         return;
       }
     }
-    await finalize(payload);
+    await finalize(pendingPayload);
   }
 
   if (!ready) {
@@ -190,100 +152,12 @@ export default function StartPage() {
         what to scan for.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-        <fieldset className="space-y-4">
-          <legend className="text-sm font-medium text-zinc-500">About you</legend>
-          <div className="grid grid-cols-2 gap-4">
-            <label className="block">
-              <span className="mb-1 block text-sm">Age</span>
-              <input
-                type="number"
-                min={13}
-                max={120}
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                className={field}
-                required
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm">Gender</span>
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className={field}
-                required
-              >
-                <option value="">Select…</option>
-                {GENDERS.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="text-xs text-zinc-500">Optional — helps flag targeted risks.</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <label className="block">
-              <span className="mb-1 block text-sm">Race</span>
-              <input
-                value={race}
-                onChange={(e) => setRace(e.target.value)}
-                className={field}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm">Sexual orientation</span>
-              <input
-                value={orientation}
-                onChange={(e) => setOrientation(e.target.value)}
-                className={field}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm">Country</span>
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                className={field}
-              />
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset className="space-y-3">
-          <legend className="text-sm font-medium text-zinc-500">
-            What should we scan for?
-          </legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {Object.values(RiskCategory).map((c) => (
-              <label
-                key={c}
-                className="flex items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={categories.includes(c)}
-                  onChange={() => toggleCategory(c)}
-                  className="h-4 w-4"
-                />
-                {RISK_LABELS[c]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-6 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {submitting ? "Starting…" : "Start audit"}
-        </button>
-      </form>
+      <JobCreationForm
+        initial={initial}
+        submitting={submitting}
+        error={error}
+        onSubmit={handleSubmit}
+      />
 
       {showAuth && !userId && (
         <div className="mt-8 rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">

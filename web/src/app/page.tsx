@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { TopBar } from "@/components/TopBar";
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
+    <>
+      <TopBar />
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
       <div className="max-w-2xl">
         <p className="mb-4 text-sm font-medium uppercase tracking-widest text-zinc-500">
           Social media audit
@@ -23,6 +26,7 @@ export default function Home() {
           </Link>
         </div>
       </div>
-    </main>
+      </main>
+    </>
   );
 }
