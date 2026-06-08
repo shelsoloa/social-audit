@@ -353,9 +353,32 @@ function ResultsView({
   meta: JobMeta;
   live: boolean;
 }) {
-  const flaggedPosts = result.posts.filter((p) => p.flags.length > 0);
+  const allFlaggedPosts = result.posts.filter((p) => p.flags.length > 0);
   const cleanPosts = result.posts.filter((p) => p.flags.length === 0);
   const statEntries = Object.entries(result.stats) as [RiskCategory, number][];
+  const allCats = statEntries.map(([cat]) => cat);
+
+  const [activeCategories, setActiveCategories] = useState<Set<RiskCategory>>(
+    () => new Set(allCats),
+  );
+
+  const isAllOn = activeCategories.size === allCats.length;
+
+  const visiblePosts = allFlaggedPosts.filter((p) =>
+    p.flags.some((f) => activeCategories.has(f.category)),
+  );
+
+  function toggleCategory(cat: RiskCategory) {
+    setActiveCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) { next.delete(cat); } else { next.add(cat); }
+      return next;
+    });
+  }
+
+  function showAll() {
+    setActiveCategories(new Set(allCats));
+  }
 
   return (
     <div className="mt-6 space-y-8">
@@ -374,16 +397,31 @@ function ResultsView({
       </dl>
 
       {statEntries.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {statEntries.map(([cat, n]) => (
-            <span
-              key={cat}
-              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1 text-xs dark:border-zinc-800"
-            >
-              {RISK_LABELS[cat]}
-              <span className="font-semibold">{n}</span>
-            </span>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          {statEntries.map(([cat, n]) => {
+            const isOn = activeCategories.has(cat);
+            return (
+              <button
+                key={cat}
+                onClick={() => toggleCategory(cat)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                  isOn
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-zinc-200 text-zinc-400 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-600 dark:hover:border-zinc-600"
+                }`}
+              >
+                {RISK_LABELS[cat]}
+                <span className="font-semibold">{n}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={showAll}
+            disabled={isAllOn}
+            className="rounded-full border border-zinc-200 px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-30 dark:border-zinc-800 enabled:hover:border-zinc-400 dark:enabled:hover:border-zinc-600"
+          >
+            Show all
+          </button>
         </div>
       )}
 
@@ -395,12 +433,14 @@ function ResultsView({
 
       <section>
         <h2 className="text-sm font-medium text-zinc-500">
-          Flagged ({flaggedPosts.length})
+            {isAllOn
+            ? `Flagged (${allFlaggedPosts.length})`
+            : `Flagged (${visiblePosts.length} of ${allFlaggedPosts.length})`}
         </h2>
-        {flaggedPosts.length === 0 ? (
+        {visiblePosts.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-500">Nothing flagged. 🎉</p>
         ) : (
-          <FlaggedList posts={flaggedPosts} className="mt-3" />
+          <FlaggedList posts={visiblePosts} className="mt-3" />
         )}
       </section>
 
