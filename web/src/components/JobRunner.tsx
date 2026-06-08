@@ -220,9 +220,10 @@ export default function JobRunner({ jobId }: { jobId: string }) {
 
       {phase.kind === "missing_results" && (
         <div className="mt-6">
-          <p className="text-sm text-zinc-500">
-            This audit finished, but its results aren’t stored on this device
-            (tweets are kept client-side for now). Re-run the scan to see them.
+          <h2 className="text-lg font-semibold">This run has been cleared</h2>
+          <p className="mt-2 text-sm text-zinc-500">
+            We never store any of your tweets on our server, so if you cleared
+            your cache, the tweets in this run were cleared too.
           </p>
           <RerunButton onClick={rerun} />
         </div>

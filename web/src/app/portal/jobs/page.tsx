@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { CardList, auditName } from "@/components/CardList";
-import { RISK_LABELS, RiskCategory } from "@/lib/audit/types";
+import { auditName, StatusBadge } from "@/components/CardList";
+import { RISK_LABELS, type RiskCategory } from "@/lib/audit/types";
+import { deleteJob } from "./actions";
 
-/** Map stored category codes to their display labels, dropping unknown codes. */
 function categoryLabels(codes: string[] | null): string[] {
   return (codes ?? [])
     .map((c) => RISK_LABELS[c as RiskCategory])
@@ -14,7 +14,8 @@ export default async function JobsPage() {
   const supabase = await createClient();
   const { data: jobs } = await supabase
     .from("audit_jobs")
-    .select("job_id, status, enabled_categories, created_at")
+    .select("job_id, status, enabled_categories, created_at, progress")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   return (
@@ -38,16 +39,61 @@ export default async function JobsPage() {
           .
         </p>
       ) : (
-        <CardList
-          className="mt-6"
-          items={jobs.map((j) => ({
-            href: `/portal/jobs/${j.job_id}`,
-            title: auditName(j.created_at),
-            subtitle: `#${j.job_id}`,
-            status: j.status,
-            badges: categoryLabels(j.enabled_categories),
-          }))}
-        />
+        <ul className="mt-6 space-y-3">
+          {jobs.map((j) => {
+            const progress = j.progress as {
+              total?: number;
+              flagged?: number;
+            } | null;
+            const scanned = progress?.total ?? 0;
+            const flagged = progress?.flagged ?? 0;
+            const hasStats = scanned > 0;
+            const labels = categoryLabels(j.enabled_categories);
+
+            return (
+              <li key={j.job_id} className="flex items-stretch gap-2">
+                <Link
+                  href={`/portal/jobs/${j.job_id}`}
+                  className="flex min-w-0 flex-1 items-start justify-between gap-4 rounded-xl border border-zinc-200 px-5 py-4 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {auditName(j.created_at)}
+                    </p>
+                    <p className="text-sm text-zinc-500">
+                      {hasStats
+                        ? `${scanned.toLocaleString()} posts scanned · ${flagged.toLocaleString()} flagged`
+                        : `#${j.job_id}`}
+                    </p>
+                    {labels.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {labels.map((label) => (
+                          <span
+                            key={label}
+                            className="inline-flex items-center rounded-full border border-zinc-200 px-2.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <StatusBadge status={j.status} />
+                </Link>
+
+                <form action={deleteJob.bind(null, j.job_id)}>
+                  <button
+                    type="submit"
+                    aria-label="Delete audit"
+                    className="flex h-full items-center justify-center rounded-xl border border-zinc-200 px-3.5 text-zinc-400 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:border-zinc-800 dark:hover:border-red-900 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                  >
+                    ✕
+                  </button>
+                </form>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </main>
   );
