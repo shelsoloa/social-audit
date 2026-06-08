@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Audit-X: scans a user's X (Twitter) timeline, flags risky posts by category, links
+dontcancel.me: scans a user's X (Twitter) timeline, flags risky posts by category, links
 each for review. Monorepo: **`web/`** (Next.js app) + **`supabase/`** (DB/auth config +
 migrations). Human setup/env docs live in `README.md` — don't duplicate them here.
 

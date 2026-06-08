@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Audit-X",
+  title: "dontcancel.me",
   description:
-    "Audit-X is a tool that helps you audit your social media accounts.",
+    "dontcancel.me scans your X timeline and flags risky posts before they come back to haunt you.",
 };
 
 export default function RootLayout({

@@ -1,4 +1,4 @@
-# Audit-X
+# dontcancel.me
 
 A social media audit tool. It scans a user's **X (Twitter)** timeline, flags potentially sensitive or risky posts across a set of risk categories, and presents the results with a link back to each post so the user can review them in context.
 

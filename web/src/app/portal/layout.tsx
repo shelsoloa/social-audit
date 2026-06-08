@@ -20,7 +20,7 @@ export default async function PortalLayout({
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-base font-semibold tracking-tight">
-            SocialAuditor
+            dontcancel.me
           </Link>
           <div className="flex items-center gap-4 text-sm text-zinc-500">
             <span className="hidden sm:inline">{user.email}</span>

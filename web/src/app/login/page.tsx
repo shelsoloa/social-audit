@@ -14,7 +14,7 @@ export default async function LoginPage() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <Link href="/" className="text-base font-semibold tracking-tight">
-        SocialAuditor
+        dontcancel.me
       </Link>
       <div className="mt-8 w-full max-w-sm">
         <h1 className="text-center text-2xl font-semibold tracking-tight">

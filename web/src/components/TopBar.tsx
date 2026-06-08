@@ -15,7 +15,7 @@ export async function TopBar() {
     <header className="border-b border-zinc-200 dark:border-zinc-800">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
         <Link href="/" className="text-base font-semibold tracking-tight">
-          SocialAuditor
+          dontcancel.me
         </Link>
         <nav className="flex items-center gap-3 text-sm">
           {user ? (
