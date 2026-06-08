@@ -1,26 +1,21 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { CardList } from "@/components/CardList";
+import { CardList, auditName } from "@/components/CardList";
+import { RISK_LABELS, RiskCategory } from "@/lib/audit/types";
+
+/** Map stored category codes to their display labels, dropping unknown codes. */
+function categoryLabels(codes: string[] | null): string[] {
+  return (codes ?? [])
+    .map((c) => RISK_LABELS[c as RiskCategory])
+    .filter((label): label is string => Boolean(label));
+}
 
 export default async function JobsPage() {
   const supabase = await createClient();
   const { data: jobs } = await supabase
     .from("audit_jobs")
-    .select("job_id, status, enabled_categories, created_at, started_at, progress")
+    .select("job_id, status, enabled_categories, created_at")
     .order("created_at", { ascending: false });
-
-  function subtitle(j: {
-    enabled_categories: string[] | null;
-    status: string;
-    progress: { flagged?: number; total?: number } | null;
-  }) {
-    const n = (j.enabled_categories ?? []).length;
-    const cats = `${n} categor${n === 1 ? "y" : "ies"}`;
-    if (j.status === "completed" && j.progress) {
-      return `${cats} · ${j.progress.flagged ?? 0} of ${j.progress.total ?? 0} flagged`;
-    }
-    return cats;
-  }
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
@@ -47,10 +42,10 @@ export default async function JobsPage() {
           className="mt-6"
           items={jobs.map((j) => ({
             href: `/portal/jobs/${j.job_id}`,
-            title: `Audit ${String(j.job_id).slice(0, 8)}`,
-            subtitle: subtitle(j),
+            title: auditName(j.created_at),
+            subtitle: `#${j.job_id}`,
             status: j.status,
-            date: j.started_at ?? j.created_at,
+            badges: categoryLabels(j.enabled_categories),
           }))}
         />
       )}

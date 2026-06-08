@@ -6,6 +6,8 @@ export type CardItem = {
   subtitle?: string;
   status?: string;
   date?: string | null;
+  /** Small pill labels rendered under the subtitle (e.g. audit categories). */
+  badges?: string[];
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -32,6 +34,15 @@ export function formatDate(date?: string | null) {
   return new Date(date).toLocaleString();
 }
 
+/** An audit's display name is its creation date + time, e.g. "Audit Jun 7, 2026, 3:42 PM". */
+export function auditName(createdAt?: string | null) {
+  if (!createdAt) return "Audit";
+  return `Audit ${new Date(createdAt).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })}`;
+}
+
 export function CardList({
   items,
   className = "",
@@ -45,17 +56,31 @@ export function CardList({
         <li key={item.href}>
           <Link
             href={item.href}
-            className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 px-5 py-4 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+            className="flex items-start justify-between gap-4 rounded-xl border border-zinc-200 px-5 py-4 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
           >
             <div className="min-w-0">
               <p className="truncate font-medium">{item.title}</p>
               {item.subtitle && (
                 <p className="truncate text-sm text-zinc-500">{item.subtitle}</p>
               )}
+              {item.badges && item.badges.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {item.badges.map((label) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center rounded-full border border-zinc-200 px-2.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
               {item.status && <StatusBadge status={item.status} />}
-              <span className="text-xs text-zinc-400">{formatDate(item.date)}</span>
+              {item.date && (
+                <span className="text-xs text-zinc-400">{formatDate(item.date)}</span>
+              )}
             </div>
           </Link>
         </li>

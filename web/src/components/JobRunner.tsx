@@ -16,7 +16,7 @@ import {
   type RiskCategory,
   type Severity,
 } from "@/lib/audit/types";
-import { StatusBadge, formatDate } from "@/components/CardList";
+import { StatusBadge, formatDate, auditName } from "@/components/CardList";
 
 type JobMeta = {
   jobId: string;
@@ -192,8 +192,9 @@ export default function JobRunner({ jobId }: { jobId: string }) {
         ← Back to audits
       </Link>
       <h1 className="mt-4 text-2xl font-semibold tracking-tight">
-        Audit {jobId.slice(0, 8)}
+        {auditName(meta?.createdAt)}
       </h1>
+      <p className="mt-1 text-sm text-zinc-500">#{jobId}</p>
 
       {phase.kind === "loading" && (
         <p className="mt-6 text-sm text-zinc-500">Loading…</p>
