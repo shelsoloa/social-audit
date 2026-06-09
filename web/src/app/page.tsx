@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TopBar } from "@/components/TopBar";
+import { Footer } from "@/components/Footer";
 import { RiskCard } from "@/components/ui/RiskCard";
 import { StatStrip } from "@/components/ui/StatStrip";
 import type { DesignSeverity } from "@/lib/audit/severity";
@@ -103,6 +104,7 @@ export default function Home() {
           </div>
         </section>
       </main>
+      <Footer />
     </>
   );
 }
