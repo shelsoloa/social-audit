@@ -1,0 +1,155 @@
+/**
+ * Tests for GET /api/x/tweets
+ *
+ * Verifies that the right X API functions are called depending on
+ * enabled_sources: only-tweets, only-likes, and both.
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { GET } from "@/app/api/x/tweets/route";
+
+// ── Module mocks ──────────────────────────────────────────────────────────────
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
+vi.mock("@/lib/x/oauth",         () => ({
+  resolveConnectionId: vi.fn(),
+  getValidToken:       vi.fn(),
+}));
+vi.mock("@/lib/x/api", () => ({
+  getMe:           vi.fn(),
+  listTimeline:    vi.fn(),
+  listLikedTweets: vi.fn(),
+  XApiError:       class XApiError extends Error {
+    status: number;
+    constructor(status: number, msg: string) { super(msg); this.status = status; }
+  },
+  MAX_FETCHABLE: 3200,
+}));
+
+const { createClient }      = await import("@/lib/supabase/server");
+const { resolveConnectionId, getValidToken } = await import("@/lib/x/oauth");
+const { getMe, listTimeline, listLikedTweets } = await import("@/lib/x/api");
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const USER    = { id: "user-abc" };
+const ME      = { id: "x-uid", username: "testuser", tweetCount: 100, likeCount: 50 };
+const TWEET   = { id: "1", text: "hi", createdAt: "2024-01-01T00:00:00Z", authorHandle: "testuser", url: "https://x.com/testuser/status/1", hasImages: false };
+
+function makeSupabaseClient(sources: string[]) {
+  const mockQuery = {
+    select:      vi.fn().mockReturnThis(),
+    eq:          vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data: { job_id: "job1", connection_id: "conn1", enabled_sources: sources, scan_limit: null },
+    }),
+  };
+  return {
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: USER } }) },
+    from: vi.fn().mockReturnValue(mockQuery),
+  };
+}
+
+function makeRequest(jobId = "job1") {
+  return new Request(`http://127.0.0.1:3000/api/x/tweets?jobId=${jobId}`);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(resolveConnectionId).mockResolvedValue("conn1");
+  vi.mocked(getValidToken).mockResolvedValue("access_token");
+  vi.mocked(getMe).mockResolvedValue(ME);
+  vi.mocked(listTimeline).mockResolvedValue([TWEET]);
+  vi.mocked(listLikedTweets).mockResolvedValue([{ ...TWEET, id: "like1" }]);
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("GET /api/x/tweets — source selection", () => {
+  it("only tweets: calls listTimeline and NOT listLikedTweets", async () => {
+    vi.mocked(createClient).mockResolvedValue(makeSupabaseClient(["own_text"]) as never);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    expect(listTimeline).toHaveBeenCalled();
+    expect(listLikedTweets).not.toHaveBeenCalled();
+  });
+
+  it("only likes: calls listLikedTweets and NOT listTimeline", async () => {
+    vi.mocked(createClient).mockResolvedValue(makeSupabaseClient(["likes"]) as never);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    expect(listLikedTweets).toHaveBeenCalled();
+    expect(listTimeline).not.toHaveBeenCalled();
+  });
+
+  it("tweets + likes: calls both listTimeline and listLikedTweets", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabaseClient(["own_text", "likes"]) as never,
+    );
+
+    const res  = await GET(makeRequest());
+    const body = await res.json() as { tweets: unknown[] };
+
+    expect(res.status).toBe(200);
+    expect(listTimeline).toHaveBeenCalled();
+    expect(listLikedTweets).toHaveBeenCalled();
+    // Result should contain tweets from both sources (deduped)
+    expect(body.tweets).toHaveLength(2);
+  });
+
+  it("own_images: calls listTimeline (image filtering is done client-side)", async () => {
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabaseClient(["own_images"]) as never,
+    );
+
+    await GET(makeRequest());
+
+    // own_images + own_text both come from listTimeline; the route filters by hasImages
+    expect(listTimeline).toHaveBeenCalled();
+    expect(listLikedTweets).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when the user is not authenticated", async () => {
+    vi.mocked(createClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
+      from: vi.fn(),
+    } as never);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when jobId is missing", async () => {
+    vi.mocked(createClient).mockResolvedValue(makeSupabaseClient(["own_text"]) as never);
+
+    const res = await GET(new Request("http://127.0.0.1:3000/api/x/tweets"));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when the job is not found", async () => {
+    const mockQuery = {
+      select:      vi.fn().mockReturnThis(),
+      eq:          vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null }),
+    };
+    vi.mocked(createClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: USER } }) },
+      from: vi.fn().mockReturnValue(mockQuery),
+    } as never);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 when no X connection is found for the user", async () => {
+    vi.mocked(createClient).mockResolvedValue(makeSupabaseClient(["own_text"]) as never);
+    vi.mocked(resolveConnectionId).mockResolvedValue(null);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(409);
+  });
+});

@@ -48,6 +48,7 @@ type Phase =
   | { kind: "done"; result: StoredAudit }
   | { kind: "missing_results" }
   | { kind: "likes_exhausted"; processedCount: number; likesCap: number }
+  | { kind: "stopped"; processedCount: number; fromLikes: boolean }
   | { kind: "error"; message: string };
 
 const SEVERITY_STYLES: Record<Severity, string> = {
@@ -62,6 +63,15 @@ export default function JobRunner({ jobId }: { jobId: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [live, setLive] = useState(false);
   const startedRef = useRef(false);
+  /**
+   * Holds the AbortController for the current run.  Only ever aborted via the
+   * "Stop scan" button click — NEVER in useEffect cleanup (StrictMode
+   * double-mount would abort the real run; see CLAUDE.md trap).
+   */
+  const controllerRef = useRef<AbortController | null>(null);
+  /** Last snapshot emitted by onProgress — used to recover partial results
+   *  if Phase A is aborted before runAudit resolves. */
+  const lastSnapshotRef = useRef<AuditSnapshot | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -156,6 +166,11 @@ export default function JobRunner({ jobId }: { jobId: string }) {
   ) {
     if (startedRef.current) return;
     startedRef.current = true;
+    lastSnapshotRef.current = null;
+
+    // Create a fresh controller for this run.  Only aborted on button click.
+    controllerRef.current = new AbortController();
+    const { signal } = controllerRef.current;
 
     setPhase({
       kind: "running",
@@ -186,8 +201,11 @@ export default function JobRunner({ jobId }: { jobId: string }) {
         enabledCategories: jobMeta.enabledCategories,
         live: isLive,
         stepDelayMs: isLive ? 0 : undefined,
-        onProgress: (snapshot) =>
-          setPhase({ kind: "running", snapshot, label: "Scanning your posts…" }),
+        signal,
+        onProgress: (snapshot) => {
+          lastSnapshotRef.current = snapshot;
+          setPhase({ kind: "running", snapshot, label: "Scanning your posts…" });
+        },
       });
 
       // ── Phase B: likes drain (if enabled) ────────────────────────────────
@@ -207,7 +225,9 @@ export default function JobRunner({ jobId }: { jobId: string }) {
           initialProcessed: jobMeta.likesProcessed,
           priorPosts:  deterministic.posts,
           priorStats:  deterministic.stats,
+          signal,
           onProgress: (snapshot, processedCount) => {
+            lastSnapshotRef.current = snapshot;
             setPhase({
               kind: "running",
               snapshot,
@@ -215,7 +235,7 @@ export default function JobRunner({ jobId }: { jobId: string }) {
             });
           },
           onExhausted: async (processedCount, nextCursor) => {
-            // Persist the cursor before showing the exhaustion UI.
+            // Persist the cursor before showing the exhaustion/stopped UI.
             await supabase
               .from("audit_jobs")
               .update({
@@ -245,6 +265,28 @@ export default function JobRunner({ jobId }: { jobId: string }) {
             kind: "likes_exhausted",
             processedCount: drainResult.processedCount,
             likesCap:       jobMeta.likesCap,
+          });
+          return;
+        }
+
+        if (drainResult.kind === "stopped") {
+          // User hit Stop — save partial results and show the stopped view.
+          const finishedAt = new Date().toISOString();
+          const stored: StoredAudit = {
+            jobId: jobMeta.jobId,
+            status: "completed",
+            posts:    drainResult.snapshot.posts,
+            progress: drainResult.snapshot.progress,
+            stats:    drainResult.snapshot.stats,
+            finishedAt,
+          };
+          saveAudit(stored);
+
+          startedRef.current = false;
+          setPhase({
+            kind: "stopped",
+            processedCount: drainResult.processedCount,
+            fromLikes: true,
           });
           return;
         }
@@ -305,6 +347,42 @@ export default function JobRunner({ jobId }: { jobId: string }) {
         .eq("job_id", jobMeta.jobId);
       setPhase({ kind: "done", result: stored });
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // User stopped the scan during Phase A.
+        // Cast needed: TS 5.9 narrows lastSnapshotRef.current to `null` after
+        // the explicit `.current = null` assignment at the top of `start()` because
+        // it can't track writes that happen inside onProgress callbacks.
+        const stopSnapshot = lastSnapshotRef.current as AuditSnapshot | null;
+        const processedCount = stopSnapshot != null ? stopSnapshot.progress.processed : 0;
+
+        if (stopSnapshot != null && processedCount > 0) {
+          // Save whatever was scanned so far.
+          const finishedAt = new Date().toISOString();
+          const stored: StoredAudit = {
+            jobId:    jobMeta.jobId,
+            status:   "completed",
+            posts:    stopSnapshot.posts,
+            progress: stopSnapshot.progress,
+            stats:    stopSnapshot.stats,
+            finishedAt,
+          };
+          saveAudit(stored);
+          await supabase
+            .from("audit_jobs")
+            .update({ status: "completed", finished_at: finishedAt })
+            .eq("job_id", jobMeta.jobId);
+        } else {
+          // Nothing scanned yet — reset to queued so the user can rerun.
+          await supabase
+            .from("audit_jobs")
+            .update({ status: "queued" })
+            .eq("job_id", jobMeta.jobId);
+        }
+        startedRef.current = false;
+        setPhase({ kind: "stopped", processedCount, fromLikes: false });
+        return;
+      }
+
       const message = err instanceof Error ? err.message : "Audit failed.";
       await supabase
         .from("audit_jobs")
@@ -378,7 +456,11 @@ export default function JobRunner({ jobId }: { jobId: string }) {
       )}
 
       {phase.kind === "running" && (
-        <RunningView snapshot={phase.snapshot} label={phase.label} />
+        <RunningView
+          snapshot={phase.snapshot}
+          label={phase.label}
+          onStop={() => controllerRef.current?.abort()}
+        />
       )}
 
       {phase.kind === "error" && (
@@ -406,6 +488,14 @@ export default function JobRunner({ jobId }: { jobId: string }) {
           likesCap={phase.likesCap}
           jobId={jobId}
           onResume={resumeLikes}
+        />
+      )}
+
+      {phase.kind === "stopped" && (
+        <StoppedView
+          processedCount={phase.processedCount}
+          onAction={phase.fromLikes ? resumeLikes : rerun}
+          actionLabel={phase.fromLikes ? "Resume scan" : "Re-run scan"}
         />
       )}
 
@@ -488,14 +578,47 @@ function LikesExhaustedView({
   );
 }
 
+// ── StoppedView ───────────────────────────────────────────────────────────────
+
+function StoppedView({
+  processedCount,
+  onAction,
+  actionLabel,
+}: {
+  processedCount: number;
+  onAction: () => void;
+  actionLabel: string;
+}) {
+  return (
+    <div className="mt-6 rounded-xl border border-line p-6">
+      <h2 className="text-lg font-semibold">Scan stopped</h2>
+      <p className="mt-2 text-sm text-ink-2">
+        Processed <strong>{processedCount.toLocaleString()}</strong> post
+        {processedCount !== 1 ? "s" : ""} before stopping. Results scanned so
+        far are saved below.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          onClick={onAction}
+          className="inline-flex h-11 items-center justify-center rounded-full bg-primary px-6 text-sm font-medium text-primary-ink transition-opacity hover:opacity-90"
+        >
+          {actionLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── RunningView ────────────────────────────────────────────────────────────────
 
 function RunningView({
   snapshot,
   label,
+  onStop,
 }: {
   snapshot: AuditSnapshot;
   label: string;
+  onStop: () => void;
 }) {
   const { total, processed, flagged } = snapshot.progress;
   const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
@@ -503,11 +626,19 @@ function RunningView({
 
   return (
     <div className="mt-6">
-      <div className="flex items-center gap-3">
-        <StatusBadge status="running" />
-        <span className="text-sm text-ink-2">
-          {total === 0 ? label : `${label} (${processed} of ${total})`}
-        </span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <StatusBadge status="running" />
+          <span className="text-sm text-ink-2">
+            {total === 0 ? label : `${label} (${processed} of ${total})`}
+          </span>
+        </div>
+        <button
+          onClick={onStop}
+          className="shrink-0 text-sm text-ink-2 hover:text-ink hover:underline"
+        >
+          Stop scan
+        </button>
       </div>
 
       <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-surface-2">

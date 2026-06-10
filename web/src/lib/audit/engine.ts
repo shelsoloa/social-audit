@@ -142,25 +142,36 @@ export type LikesDrainArgs = {
   initialProcessed: number;
   /** Called after each tweet is charged and scanned. */
   onProgress?: (snapshot: AuditSnapshot, processedCount: number) => void;
-  /** Called when balance is exhausted; the runner should persist cursor + show UI. */
+  /** Called when balance is exhausted OR the user stops the scan. */
   onExhausted?: (processedCount: number, nextCursor: string | undefined) => void;
   /** Accumulated posts from Phase A (merged into each snapshot). */
   priorPosts: AuditedPost[];
   priorStats: Partial<Record<RiskCategory, number>>;
   /** Per-tweet delay for dev/sample paths (0 for live). */
   stepDelayMs?: number;
+  /**
+   * Abort signal from the Stop button.  Checked between pages and between
+   * tweets.  On abort the runner saves state via `onExhausted` so the user
+   * can resume, then returns `{ kind: "stopped" }`.
+   *
+   * IMPORTANT: this signal must NOT come from a useEffect cleanup (StrictMode
+   * double-mount would abort the real run).  Wire it to a ref set only by a
+   * click handler — see JobRunner.tsx.
+   */
+  signal?: AbortSignal;
 };
 
 export type LikesDrainResult =
   | { kind: "completed"; snapshot: AuditSnapshot; processedCount: number }
-  | { kind: "exhausted"; snapshot: AuditSnapshot; processedCount: number; nextCursor: string | undefined };
+  | { kind: "exhausted"; snapshot: AuditSnapshot; processedCount: number; nextCursor: string | undefined }
+  | { kind: "stopped";   snapshot: AuditSnapshot; processedCount: number; nextCursor: string | undefined };
 
 /** Run the metered likes drain loop for a job (Phase B). */
 export async function runLikesDrain(args: LikesDrainArgs): Promise<LikesDrainResult> {
   const {
     jobId, userId, enabledCategories, likesCap,
     initialCursor, initialProcessed, onProgress, onExhausted,
-    priorPosts, priorStats,
+    priorPosts, priorStats, signal,
   } = args;
   const stepDelayMs = args.stepDelayMs ?? 0;
 
@@ -183,6 +194,14 @@ export async function runLikesDrain(args: LikesDrainArgs): Promise<LikesDrainRes
   }
 
   while (processedCount < likesCap) {
+    // ── abort check between pages ─────────────────────────────────────────
+    if (signal?.aborted) {
+      // cursor already points at the next page from the previous iteration
+      // (or initialCursor on the very first check before any page is fetched).
+      onExhausted?.(processedCount, cursor);
+      return { kind: "stopped", snapshot: snapshot(), processedCount, nextCursor: cursor };
+    }
+
     // Fetch one page of liked tweets.
     let page;
     try {
@@ -235,6 +254,15 @@ export async function runLikesDrain(args: LikesDrainArgs): Promise<LikesDrainRes
       processedCount++;
 
       onProgress?.(snapshot(), processedCount);
+
+      // ── abort check after each charged + processed tweet ─────────────────
+      // Advance to the NEXT page cursor so resume never re-charges tweets
+      // from the current page that have already been processed.
+      if (signal?.aborted) {
+        onExhausted?.(processedCount, page.nextCursor);
+        return { kind: "stopped", snapshot: snapshot(), processedCount, nextCursor: page.nextCursor };
+      }
+
       if (stepDelayMs > 0) {
         await new Promise((r) => setTimeout(r, stepDelayMs));
       }
