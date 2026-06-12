@@ -108,7 +108,7 @@ export function JobCreationForm({
   );
   const [likesCap, setLikesCap] = useState(initial?.likesCap ?? "");
   const [categories, setCategories] = useState<RiskCategory[]>(
-    initial?.categories ?? [],
+    initial?.categories ?? [...ALL_CATEGORIES],
   );
   const [limitRaw, setLimitRaw] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -387,60 +387,63 @@ export function JobCreationForm({
         )}
       </fieldset>
 
-      <fieldset className="space-y-3">
-        <div className="flex items-center justify-between">
-          <legend className="text-sm font-medium text-ink-2">
-            What should we scan for?
-          </legend>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="h-4 w-4"
-            />
-            Select all
-          </label>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {ALL_CATEGORIES.map((c) => (
-            <label
-              key={c}
-              className="flex items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={categories.includes(c)}
-                onChange={() => toggleCategory(c)}
-                className="h-4 w-4"
-              />
-              {RISK_LABELS[c]}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
       <details className="group">
         <summary className="cursor-pointer text-sm font-medium text-ink-2 select-none">
-          Advanced options
+          Advanced settings
         </summary>
-        <fieldset className="mt-4 space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-sm">Max own posts to scan</span>
-            <input
-              type="number"
-              min={1}
-              value={limitRaw}
-              onChange={(e) => setLimitRaw(e.target.value)}
-              placeholder="No limit"
-              className={field}
-            />
-            <span className="mt-1 block text-xs text-ink-2">
-              Leave blank to scan all available posts (up to 3,200 per source).
-              Does not apply to liked posts (use the N above).
-            </span>
-          </label>
-        </fieldset>
+
+        <div className="mt-4 space-y-6">
+          <fieldset className="space-y-3">
+            <div className="flex items-center justify-between">
+              <legend className="text-sm font-medium">
+                What to scan for
+              </legend>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="h-4 w-4"
+                />
+                {allSelected ? "Deselect all" : "Select all"}
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {ALL_CATEGORIES.map((c) => (
+                <label
+                  key={c}
+                  className="flex items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={categories.includes(c)}
+                    onChange={() => toggleCategory(c)}
+                    className="h-4 w-4"
+                  />
+                  {RISK_LABELS[c]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-sm">Max own posts to scan</span>
+              <input
+                type="number"
+                min={1}
+                value={limitRaw}
+                onChange={(e) => setLimitRaw(e.target.value)}
+                placeholder="No limit"
+                className={field}
+              />
+              <span className="mt-1 block text-xs text-ink-2">
+                Leave blank to scan all available posts (up to 3,200 per source).
+                Does not apply to liked posts (use the N above).
+              </span>
+            </label>
+          </fieldset>
+        </div>
       </details>
 
       {shownError && <p className="text-sm text-crit">{shownError}</p>}
