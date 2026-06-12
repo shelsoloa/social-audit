@@ -768,8 +768,18 @@ function ResultsView({
   );
   const isAllOn = activeCategories.size === allCats.length;
 
-  const visiblePosts = allFlaggedPosts.filter((p) =>
-    p.flags.some((f) => activeCategories.has(f.category)),
+  // Severity filter — null means "all severities shown".
+  // Only crit/high/med/low are clickable; "clear" is excluded.
+  const [activeSeverity, setActiveSeverity] = useState<DesignSeverity | null>(null);
+
+  function toggleSeverity(sev: DesignSeverity) {
+    setActiveSeverity((prev) => (prev === sev ? null : sev));
+  }
+
+  const visiblePosts = allFlaggedPosts.filter(
+    (p) =>
+      p.flags.some((f) => activeCategories.has(f.category)) &&
+      (activeSeverity === null || postSeverity(p.flags) === activeSeverity),
   );
 
   function toggleCategory(cat: RiskCategory) {
@@ -800,6 +810,8 @@ function ResultsView({
   }
   severityBuckets.clear = cleanPosts.length;
 
+  const CLICKABLE_SEVERITIES = new Set<DesignSeverity>(["crit", "high", "med", "low"]);
+
   const statStripItems = (
     [
       { severity: "crit" as DesignSeverity, label: "Critical" },
@@ -810,11 +822,22 @@ function ResultsView({
     ] as const
   )
     .filter((s) => severityBuckets[s.severity] > 0)
-    .map((s) => ({
-      severity: s.severity,
-      label: s.label,
-      count: severityBuckets[s.severity],
-    }));
+    .map((s) => {
+      const clickable = CLICKABLE_SEVERITIES.has(s.severity);
+      const tileState =
+        activeSeverity === null
+          ? "default"
+          : activeSeverity === s.severity
+            ? "active"
+            : "dimmed";
+      return {
+        severity: s.severity,
+        label: s.label,
+        count: severityBuckets[s.severity],
+        state: tileState as "default" | "active" | "dimmed",
+        onSelect: clickable ? () => toggleSeverity(s.severity) : undefined,
+      };
+    });
 
   return (
     <div className="mt-6 space-y-8">
@@ -841,7 +864,19 @@ function ResultsView({
         </Row>
       </dl>
 
-      {statStripItems.length > 0 && <StatStrip stats={statStripItems} />}
+      {statStripItems.length > 0 && (
+        <div className="space-y-2">
+          <StatStrip stats={statStripItems} />
+          {activeSeverity !== null && (
+            <button
+              onClick={() => setActiveSeverity(null)}
+              className="text-xs text-ink-2 underline-offset-2 hover:underline"
+            >
+              View all
+            </button>
+          )}
+        </div>
+      )}
 
       {statEntries.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -891,7 +926,7 @@ function ResultsView({
         )}
       </section>
 
-      {cleanPosts.length > 0 && (
+      {cleanPosts.length > 0 && activeSeverity === null && (
         <details className="group">
           <summary className="cursor-pointer text-sm font-medium text-ink-2 select-none">
             No issues ({cleanPosts.length})
