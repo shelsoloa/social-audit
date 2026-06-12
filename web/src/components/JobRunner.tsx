@@ -423,6 +423,23 @@ export default function JobRunner({ jobId }: { jobId: string }) {
     })();
   }
 
+  /** Mark the job completed and show whatever partial results are in localStorage. */
+  function endScan() {
+    const stored = loadAudit(jobId);
+    const supabase = createClient();
+    (async () => {
+      await supabase
+        .from("audit_jobs")
+        .update({ status: "completed" })
+        .eq("job_id", jobId);
+      if (stored) {
+        setPhase({ kind: "done", result: stored });
+      } else {
+        setPhase({ kind: "missing_results" });
+      }
+    })();
+  }
+
   /** Resume likes drain after a top-up. */
   function resumeLikes() {
     if (!meta) return;
@@ -509,6 +526,7 @@ export default function JobRunner({ jobId }: { jobId: string }) {
           likesCap={phase.likesCap}
           jobId={jobId}
           onResume={resumeLikes}
+          onEndScan={endScan}
           reason={phase.reason}
         />
       )}
@@ -535,12 +553,14 @@ function LikesExhaustedView({
   likesCap,
   jobId,
   onResume,
+  onEndScan,
   reason,
 }: {
   processedCount: number;
   likesCap: number;
   jobId: string;
   onResume: () => void;
+  onEndScan: () => void;
   reason?: "rate_limited";
 }) {
   const [toppingUp, setToppingUp] = useState(false);
@@ -581,12 +601,18 @@ function LikesExhaustedView({
           X temporarily paused requests for liked tweets — this resets every 15
           minutes. Your progress is saved; click below to try again.
         </p>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-3">
           <button
             onClick={onResume}
             className="inline-flex h-11 items-center justify-center rounded-full bg-primary px-6 text-sm font-medium text-primary-ink transition-opacity hover:opacity-90"
           >
             Try again
+          </button>
+          <button
+            onClick={onEndScan}
+            className="inline-flex h-11 items-center justify-center rounded-full border border-line px-6 text-sm font-medium transition-colors hover:border-line-strong"
+          >
+            End scan &amp; see results
           </button>
         </div>
         <p className="mt-3 text-xs text-ink-2">
@@ -618,6 +644,12 @@ function LikesExhaustedView({
           className="inline-flex h-11 items-center justify-center rounded-full border border-line px-6 text-sm font-medium transition-colors hover:border-line-strong"
         >
           Resume with current balance
+        </button>
+        <button
+          onClick={onEndScan}
+          className="inline-flex h-11 items-center justify-center rounded-full border border-line px-6 text-sm font-medium transition-colors hover:border-line-strong"
+        >
+          End scan &amp; see results
         </button>
       </div>
       <p className="mt-3 text-xs text-ink-2">
